@@ -60,16 +60,22 @@ async def update_device_type_record(type_id: int, device_id: int, payload: Devic
     return await database.execute(query=query)
 
 
-@router.delete('/{type_id}/{device_id}')
+@router.delete('/{type_id}/{device_id}', status_code=403, response_description='delete not supported')
 async def delete_device_type_record(type_id: int, device_id: int):
-    record = await get_device_record(type_id, device_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="device not found")
-    query = (
-        table
-        .delete()
-        .where(table.columns.type == type_id)
-        .where(table.columns.id == device_id)
-    )
-    return await database.execute(query=query)
+    raise HTTPException(status_code=403, detail="delete not supported")
+
+
+# @router.delete('/{type_id}/{device_id}')
+# async def delete_device_type_record(type_id: int, device_id: int):
+#     record = await get_device_record(type_id, device_id)
+#     if not record:
+#         raise HTTPException(status_code=404, detail="device not found")
+#     query = (
+#         table
+#         .delete()
+#         .where(table.columns.type == type_id)
+#         .where(table.columns.id == device_id)
+#     )
+#     # TODO: recursively delete journal records
+#     return await database.execute(query=query)
 

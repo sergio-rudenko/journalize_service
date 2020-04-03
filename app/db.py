@@ -13,7 +13,7 @@ types_table = Table(
     'types',
     metadata,
     Column('id', Integer, primary_key=True),
-    Column('title', String(4)),
+    Column('title', String(4), nullable=False),
     Column('description', String(254)),
     Column('created_date', DateTime, default=func.now(), nullable=False)
 )
@@ -30,5 +30,15 @@ devices_table = Table(
     Column('updated_date', DateTime, default=func.now(), nullable=False)
 )
 
+
+journal_table = Table(
+    'journal',
+    metadata,
+    Column('id', Integer, primary_key=True),
+    Column('device_id', Integer, nullable=False),
+    Column('key', String(), nullable=False),
+    Column('value', String(), nullable=False),
+    Column('dt', DateTime, default=func.now(), nullable=False)
+)
 
 database = Database(DATABASE_URL)

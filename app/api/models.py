@@ -19,3 +19,14 @@ class Device(BaseModel):
 
 class DeviceOut(Device):
     id: int
+
+
+class Journal(BaseModel):
+    device_id: int
+    key: constr(strip_whitespace=True, min_length=1)
+    value: constr(strip_whitespace=True, min_length=1)
+
+
+class JournalOut(Journal):
+    id: int
+
