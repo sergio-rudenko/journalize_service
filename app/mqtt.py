@@ -1,19 +1,54 @@
+import os, time, threading, random, string
 import paho.mqtt.client as mqtt
 
-broker_host = "test.mosquitto.org"
-broker_port = 1883
-
-username = "test_python_user"
-password = "test_python_pass"
-client_id = "PythonClient1"
+from app.api.models import JournalRecord
+from app.api.service import add_device_journal_record
 
 
-def on_message(client, userdata, message):
+# service function
+def random_str(len: int):
+    chars = string.ascii_uppercase
+    return ''.join(random.choice(chars) for i in range(len))
+
+
+def heartbeat(timeout: int = 10):
+    if MQTTClient.connected_flag:
+        print("mqtt heartbeat", time.ctime())
+        mqtt_publish('status/journalize/state', 'CONNECTED')
+        # TODO: publish statistic data
+    else:
+        print("mqtt is not connected...")
+    threading.Timer(timeout, heartbeat).start()
+
+
+# credentials
+HOST = os.getenv('MQTT_HOST', 'sa100cloud.com')
+PORT = os.getenv('MQTT_PORT', '1883')
+USERNAME = os.getenv('MQTT_USERNAME', 'admin')
+PASSWORD = os.getenv('MQTT_PASSWORD', 'adminpsw')
+CLIENT_ID = os.getenv('MQTT_PASSWORD', 'Journalize_' + random_str(8))
+
+# constants
+device_journal_topic_mask = '+/+/journal/#'
+client_journal_topic_mask = 'status/+/journal/#'
+
+
+def on_message_callback(client, userdata, message):
     # print(f"topic: {message.topic}, payload: {str(message.payload.decode('utf-8'))}")
-    print("message received:", str(message.payload.decode("utf-8")))
-    print("message topic:", message.topic)
-    print("message qos:", message.qos)
-    print("message retain flag:", message.retain)
+    # print("message qos:", message.qos)
+    # print("message retain flag:", message.retain)
+    path = str(message.topic).split('/')
+    if path[2] == 'journal':
+        print(f'device: "{path[0]}/{path[1]}", len:', path.__len__())
+        if path.__len__() < 4 or not path[3]:
+            print("key not defined!", path)
+            return None
+        value = str(message.payload.decode("utf-8"))
+        data = JournalRecord(
+            key=path[3],
+            value=value
+        )
+        add_device_journal_record(device_type=path[0], device_uuid=path[1], data=data)
 
 
 # Result codes:
@@ -27,25 +62,27 @@ def on_message(client, userdata, message):
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         client.connected_flag = True
-        print("connected OK!")
-        mqtt_subscribe('+/test/status/#')
-        mqtt_publish('Python/Test/status/state', 'CONNECTED; Hello, World!')
+        print("MQTT: connected!")
+        mqtt_subscribe(device_journal_topic_mask)
+        mqtt_subscribe(client_journal_topic_mask)
     else:
         client.connected_flag = False
-        print("bad connection rc=", rc)
+        print("MQTT: connect failed, rc=", rc)
+        time.sleep(5)  # wait
         client.reconnect()
 
 
 def on_disconnect(client, userdata, rc):
-    client.connected_flag = False
-    print("disconnected, rc=", rc)
     if rc != 0:
-        print("Unexpected disconnection.")
+        print("MQTT: Unexpected disconnection!")
+    print("MQTT disconnected, rc=", rc)
+    client.connected_flag = False
+    time.sleep(5)  # wait
     client.reconnect()
 
 
-def on_subscribe(client, userdata, mid, granted_qos):
-    print("subscribed:", mid)
+# def on_subscribe(client, userdata, mid, granted_qos):
+#     print("subscribed:", mid)
 
 
 # https://www.eclipse.org/paho/clients/python/docs/
@@ -58,7 +95,7 @@ def initialize_client(cname):
     client = mqtt.Client(cname, False)
 
     # callbacks
-    client.on_message = on_message
+    client.on_message = on_message_callback
     # message_callback_add(sub, callback) / message_callback_remove(sub)
     # sub       the subscription filter to match against for this callback.
     #           Only one callback may be defined per literal sub string
@@ -66,7 +103,7 @@ def initialize_client(cname):
 
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
-    client.on_subscribe = on_subscribe
+    # client.on_subscribe = on_subscribe
     # client.on_unsubscribe = on_unsubscribe
 
     # flags
@@ -78,10 +115,12 @@ def initialize_client(cname):
 
 
 def mqtt_connect():
-    # print(f"MQTT: connecting to  {broker_host}:{broker_port}")
-    # MQTTClient.username_pw_set(username="test_python_user", password="test_python_pass")
-    MQTTClient.connect_async(broker_host, broker_port)
+    print(f"MQTT: connecting to {HOST}:{PORT} as {USERNAME}/{CLIENT_ID}")
+    MQTTClient.will_set('status/journalize/state', 'Disconnected', retain=True)
+    MQTTClient.username_pw_set(username=USERNAME, password=PASSWORD)
+    MQTTClient.connect_async(HOST, int(PORT))
     MQTTClient.loop_start()
+    heartbeat()
     return None
 
 
@@ -94,7 +133,14 @@ def mqtt_disconnect():
 
 def mqtt_subscribe(topic: str, qos: int = 0):
     if MQTTClient.connected_flag:
+        print(f"MQTT: subscribing to '{topic}', qos:", qos)
         MQTTClient.subscribe(topic, qos)
+
+
+def mqtt_unsubscribe(topic: str):
+    if MQTTClient.connected_flag:
+        print(f"MQTT: unsubscribing from '{topic}'")
+        MQTTClient.unsubscribe(topic)
 
 
 def mqtt_publish(topic: str, payload: str, qos: int = 0, retain: bool = False):
@@ -102,36 +148,5 @@ def mqtt_publish(topic: str, payload: str, qos: int = 0, retain: bool = False):
         MQTTClient.publish(topic, payload, qos, retain)
 
 
-# MQTTClient.username_pw_set(username="test_python_user", password="test_python_pass")
-# MQTTClient.connect(host="sa100Cloud.com")
-# MQTTClient.connect(broker_address)
-# MQTTClient.loop_start()
-# print("Subscribing to topic", "house/bulbs/bulb1")
-# MQTTClient.subscribe("house/bulbs/bulb1")
-# print("Publishing message to topic", "house/bulbs/bulb1")
-# MQTTClient.publish("house/bulbs/bulb1", "123")
-# # time.sleep(5)  # wait
-# MQTTClient.loop_stop()  # stop the loop
-
-# print("creating new instance")
-# client = mqtt.Client("P1")  # create new instance
-# client.on_message = mqtt_on_message  # attach function to callback
-# print("connecting to broker")
-# client.connect(broker_address)  # connect to broker
-# client.loop_start()  # start the loop
-# print("Subscribing to topic", "house/bulbs/bulb1")
-# client.subscribe("house/bulbs/bulb1")
-# print("Publishing message to topic", "house/bulbs/bulb1")
-# client.publish("house/bulbs/bulb1", "OFF")
-# time.sleep(4)  # wait
-# client.loop_stop()  # stop the loop
-
-# import time
-#
-# start = time.perf_counter()
-# asyncio.run(main())
-# elapsed = time.perf_counter() - start
-# print(f"{__file__} executed in {elapsed:0.2f} seconds")
-
 # instance
-MQTTClient = initialize_client(client_id)
+MQTTClient = initialize_client(CLIENT_ID)

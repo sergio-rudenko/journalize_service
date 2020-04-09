@@ -1,6 +1,6 @@
 import os
 from databases import Database
-from sqlalchemy import (create_engine, MetaData, Table, Column, Integer, String, DateTime, ARRAY)
+from sqlalchemy import (create_engine, ForeignKey, MetaData, Table, Column, Integer, String, DateTime, ARRAY)
 from sqlalchemy.sql import func
 
 
@@ -13,9 +13,10 @@ types_table = Table(
     'types',
     metadata,
     Column('id', Integer, primary_key=True),
-    Column('title', String(4), nullable=False),
+    Column('title', String(32), unique=True, nullable=False),
     Column('description', String(254)),
-    Column('created_date', DateTime, default=func.now(), nullable=False)
+    Column('created_date', DateTime, default=func.now(), nullable=False),
+    Column('updated_date', DateTime, default=func.now(), nullable=False)
 )
 
 
