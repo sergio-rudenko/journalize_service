@@ -1,7 +1,7 @@
 import os, time, threading, random, string
 import paho.mqtt.client as mqtt
 
-from app.api.schemas import JournalRecord
+from app.schemas import JournalRecord
 from app.api.service import add_device_journal_record
 
 

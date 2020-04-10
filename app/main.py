@@ -1,9 +1,9 @@
-from fastapi import FastAPI
+import time
+from fastapi import FastAPI, Request, Response, Header, HTTPException
 
-from app.config import api_version, api_prefix, journal_path, mqtt_path
+from app.config import api_version, api_prefix
 from app.api.crud_devices import router as crud_devices_router
-# from app.api.crud_devices import router as crud_devices_router
-# from app.api.crud_journal import router as crud_journal
+from app.api.crud_journal import router as crud_journal_router
 # from app.api.gate_mqtt import router as gate_mqtt
 
 # from app.mqtt import mqtt_connect, mqtt_disconnect
@@ -22,6 +22,34 @@ app = FastAPI(
 )
 
 
+# https://fastapi.tiangolo.com/tutorial/middleware/
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    # TODO: dirty check 'X-Token'
+    # print("request:", request.headers)
+    # if 'x-token' not in request.headers:
+    #     response = Response(
+    #         status_code=401,
+    #         content='{"detail": "read the docs, provide token"}',
+    #         media_type="application/json"
+    #     )
+    #     return response
+    #
+    # if request.headers['x-token'] != '11223344':
+    #     response = Response(
+    #         status_code=401,
+    #         content='{"detail": "token is not valid"}',
+    #         media_type="application/json"
+    #     )
+    #     return response
+
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
+
 @app.on_event("startup")
 async def startup():
     # await database.connect()
@@ -35,18 +63,25 @@ async def shutdown():
     # await database.disconnect()
     return  None
 
-# # test routes
-# @app.get("/", tags=["test"])
-# def get_root():
-#     return {"result": "Hello, World!"}
-#
-#
+
+# test routes
+@app.get("/", tags=["root"])
+def get_path():
+    return {"path": f"{api_prefix}", "version": f"{api_version}"}
+
+
+@app.get("/test", tags=["root"])
+def get_test(x_token: str = Header(...)):
+    if not x_token:
+        raise HTTPException(status_code=401, detail="token required")
+    return {"msg": "Hello World"}
+
+
 # @app.get("/items/{item_id}", tags=["test"])
 # def get_item(item_id: int, q: str = None):
 #     return {"id": item_id, "q": q}
 
 
 app.include_router(crud_devices_router, prefix=f'{api_prefix}', tags=["Devices"])
-# app.include_router(crud_devices_router, prefix=f'{api_prefix}{devices_path}', tags=["Devices"])
-# app.include_router(crud_journal, prefix=f'{api_prefix}{journal_path}', tags=["Journal data"])
+app.include_router(crud_journal_router, prefix=f'{api_prefix}', tags=["Journal"])
 # app.include_router(gate_mqtt, prefix=f'{api_prefix}{mqtt_path}', tags=["MQTT Gateway (FIXME!: Dev only)"])

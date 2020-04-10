@@ -29,17 +29,17 @@ class Device(Base):
     updated = Column(DateTime, default=func.now(), nullable=False)
 
     type = relationship("DeviceType", back_populates="devices")
-    # records = relationship("Journal", back_populates="device")
+    records = relationship("Journal", back_populates="device")
 
 
-# class Journal(Base):
-#     __tablename__ = "journal"
-#
-#     id = Column(Integer, primary_key=True)
-#
-#     device_id = Column(Integer, ForeignKey("devices.id"))
-#     device = relationship("Device", foreign_keys=[device_id])
-#
-#     key = Column(String(), nullable=False)
-#     value = Column(String(), nullable=False)
-#     dt = Column(DateTime, default=func.now(), nullable=False)
+class Journal(Base):
+    __tablename__ = "journal"
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(Integer, ForeignKey("devices.id"))
+
+    key = Column(String(), nullable=False)
+    value = Column(String(), nullable=False)
+    dt = Column(DateTime, default=func.now(), nullable=False)
+
+    device = relationship("Device", back_populates="records")
