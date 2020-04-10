@@ -3,11 +3,11 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from app.api.models import JournalIn, JournalOut
-from app.db import database, journal_table as table
+from app.api.schemas import JournalIn, JournalOut
+# from app.db import database, journal_table as table
 
-from app.api.crud_device_types import fetch_device_type_record_by_title
-from app.api.crud_devices import fetch_device_record_by_title
+from app.api.crud_devices import fetch_device_type_record_by_title
+# from app.api.___crud_devices import fetch_device_record_by_title
 
 router = APIRouter()
 

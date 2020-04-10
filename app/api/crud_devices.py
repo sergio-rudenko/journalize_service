@@ -1,104 +1,125 @@
 from typing import List
-from fastapi import APIRouter, HTTPException
+from fastapi import Depends, APIRouter, HTTPException
+from sqlalchemy.orm import Session
 
-from app.api.models import Device, DeviceOut
-from app.db import database, devices_table as table
+from app.db import get_db
+
+from app import models
+from app.api import schemas
 
 router = APIRouter()
 
 
-# database functions ---------------------------------------------------------
-async def fetch_device_record_by_title(type_id: int, title: str):
-    query = (
-        table
-        .select()
-        .where(table.columns.type == type_id)
-        .where(table.columns.title == title)
-    )
-    record = await database.fetch_one(query=query)
-    if record:
-        return record
-    return None
+# Device Type functions ------------------------------------------------------
+def add_device_type(db: Session, device_type: schemas.DeviceTypeCreate):
+    db_device_type = models.DeviceType(**device_type.dict())
+    db.add(db_device_type)
+    db.commit()
+    db.refresh(db_device_type)
+    return db_device_type
 
 
-# CRUD -----------------------------------------------------------------------
-@router.post('/', status_code=201, response_model=int)
-async def add_device_record(payload: Device):
-    record = await fetch_device_record_by_title(payload.type, payload.title)
-    if record:
-        raise HTTPException(status_code=409, detail="already exists")
-    query = table.insert().values(**payload.dict())
-    last_id = await database.execute(query=query)
-    return last_id
+# def get_device_type_by_id(db: Session, type_id: int):
+#     return db.query(models.DeviceType).filter(models.DeviceType.id == type_id).first()
 
 
-@router.get('/{type_id}/', response_model=int)
-async def get_device_id(type_id: int, q: str = None):
-    if not q:
-        raise HTTPException(status_code=400, detail="parameter required")
-    record = await fetch_device_record_by_title(type_id, q)
-    if not record:
+def get_device_type_by_title(db: Session, title: str):
+    return db.query(models.DeviceType).filter(models.DeviceType.title == title).first()
+
+
+def get_device_type_list(db: Session, offset: int = 0, limit: int = 100):
+    return db.query(models.DeviceType).offset(offset).limit(limit).all()
+
+
+# Device functions -----------------------------------------------------------
+def add_device(db: Session, device: schemas.DeviceCreate, type_id: int):
+    db_device = models.Device(**device.dict(), type_id=type_id)
+    db.add(db_device)
+    db.commit()
+    db.refresh(db_device)
+    return db_device
+
+
+def get_device_by_id(db: Session, device_id: int):
+    return db.query(models.Device).filter(models.Device.id == device_id).first()
+
+
+def get_device(db: Session, type_id: int, device_title: str):
+    return db.query(models.Device).filter(
+        models.Device.type_id == type_id,
+        models.Device.title == device_title
+    ).first()
+
+
+def get_device_list(db: Session, type_id: int, offset: int = 0, limit: int = 100):
+    return db.query(models.Device).filter(
+        models.Device.type_id == type_id
+    ).offset(offset).limit(limit).all()
+
+# TODO: Update and Delete
+
+
+# CRUD Types -----------------------------------------------------------------
+@router.post('/types/', status_code=201, response_model=int)
+def create_device_type(payload: schemas.DeviceTypeCreate, db: Session = Depends(get_db)):
+    if get_device_type_by_title(db, title=payload.title):
+        raise HTTPException(status_code=400, detail="type already exists")
+
+    new_record = add_device_type(db, payload)
+    return new_record.id
+
+
+@router.get('/types/', response_model=List[schemas.DeviceType])
+def read_device_types(offset: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return get_device_type_list(db, offset, limit)
+
+
+@router.get('/{type_title}', response_model=schemas.DeviceType)
+def read_device_type(type_title: str = None, db: Session = Depends(get_db)):
+    type_record = get_device_type_by_title(db, title=type_title)
+
+    if not type_record:
+        raise HTTPException(status_code=404, detail="type not found")
+
+    return type_record
+
+
+# CRUD Devices ---------------------------------------------------------------
+@router.post('/{type_title}/devices/', status_code=201, response_model=int)
+def create_device(type_title: str, payload: schemas.DeviceCreate, db: Session = Depends(get_db)):
+    type_record = get_device_type_by_title(db, title=type_title)
+
+    if not type_record:
+        type_record = add_device_type(db, models.DeviceType(
+            title=type_title, description='created by create_device'))
+
+    if get_device(db, type_id=type_record.id, device_title=payload.title):
+        raise HTTPException(status_code=400, detail="device already exists")
+
+    new_record = add_device(db, payload, type_id=type_record.id)
+    return new_record.id
+
+
+@router.get('/{type_title}/devices/', response_model=List[schemas.Device])
+def read_devices(type_title: str, offset: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    type_record = get_device_type_by_title(db, type_title)
+
+    if not type_record:
+        raise HTTPException(status_code=404, detail="type not found")
+
+    return get_device_list(db, type_record.id, offset, limit)
+
+
+@router.get('/{type_title}/{device_title}', response_model=schemas.Device)
+def read_device(type_title: str, device_title: str, db: Session = Depends(get_db)):
+    type_record = get_device_type_by_title(db, title=type_title)
+
+    if not type_record:
+        raise HTTPException(status_code=404, detail="type not found")
+
+    devise_record = get_device(db, type_id=type_record.id, device_title=device_title)
+
+    if not devise_record:
         raise HTTPException(status_code=404, detail="device not found")
-    return int(record['id'])
 
-
-# @router.get('/', response_model=List[DeviceOut])
-# async def get_device_list():
-#     return await fetch_all_records(table)
-
-
-@router.get('/{type_id}/all/', response_model=List[DeviceOut])
-async def get_device_list_by_type(type_id: int):
-    query = table.select(table.columns.type == type_id)
-    device_list = await database.fetch_all(query=query)
-    return device_list
-
-
-@router.get('/{type_id}/{device_id}', response_model=DeviceOut)
-async def get_device_record(type_id: int, device_id: int):
-    query = (
-        table
-        .select()
-        .where(table.columns.type == type_id)
-        .where(table.columns.id == device_id)
-    )
-    record = await database.fetch_one(query=query)
-    if not record:
-        raise HTTPException(status_code=404, detail="device not found")
-    return record
-
-
-# @router.put('/{type_id}/{device_id}')
-# async def update_device_type_record(type_id: int, device_id: int, payload: Device):
-#     record = await get_device_record(type_id, device_id)
-#     if not record:
-#         raise HTTPException(status_code=404, detail="device not found")
-#     query = (
-#         table
-#         .update()
-#         .where(table.columns.type == type_id)
-#         .where(table.columns.id == device_id)
-#         .values(**payload.dict())
-#     )
-#     return await database.execute(query=query)
-
-
-@router.delete('/{type_id}/{device_id}', status_code=403, response_description='delete not supported')
-async def delete_device_type_record(type_id: int, device_id: int):
-    raise HTTPException(status_code=403, detail="delete not supported")
-
-
-# @router.delete('/{type_id}/{device_id}')
-# async def delete_device_type_record(type_id: int, device_id: int):
-#     record = await get_device_record(type_id, device_id)
-#     if not record:
-#         raise HTTPException(status_code=404, detail="device not found")
-#     query = (
-#         table
-#         .delete()
-#         .where(table.columns.type == type_id)
-#         .where(table.columns.id == device_id)
-#     )
-#     # TODO: recursively delete journal records
-#     return await database.execute(query=query)
-
+    return devise_record
