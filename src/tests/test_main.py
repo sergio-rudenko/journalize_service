@@ -2,8 +2,9 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-client = TestClient(app)
 fake_auth_token = "abracadabra"
+
+client = TestClient(app)
 
 
 def test_read_test():

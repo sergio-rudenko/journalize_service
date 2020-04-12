@@ -1,0 +1,3 @@
+POSTGRES_BASE=journalize_db
+POSTGRES_USER=journalize
+POSTGRES_PASS=$ecr3t

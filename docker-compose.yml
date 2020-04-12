@@ -1,21 +1,36 @@
 version: '3.7'
 
 services:
-  journalize:
-    build: .
-    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+  app:
+    build: ./src
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASS}@db/${POSTGRES_BASE}
+      - POSTGRES_DB=${POSTGRES_BASE}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASS}
+    command: ["./wait-for-postgres.sh", "db", "uvicorn", "app.main:app --reload --host 0.0.0.0 --port 8000"]
     volumes:
-      - ./app:/microservice/app/
+      - ./src:/usr/src/project/
     ports:
       - 8000:8000
-    environment:
-      - DATABASE_URL=postgresql://journalize:12345678@database/journalize_db
+    depends_on:
+      - db
+    restart: unless-stopped
+    #logging:
+    #  driver: "syslog"
+    #  options:
+    #    tag: "journalize_app"
 
-  database:
+  db:
     image: postgres:12.1-alpine
-    volumes:
-      - ./postgresql_data:/var/lib/postgresql/data/
     environment:
-      - POSTGRES_USER=journalize
-      - POSTGRES_PASSWORD=12345678
-      - POSTGRES_DB=journalize_db
+      - POSTGRES_DB=${POSTGRES_BASE}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASS}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data/
+    restart: unless-stopped
+    #logging:
+    #  driver: "syslog"
+    #  options:
+    #    tag: "journalize_db"
