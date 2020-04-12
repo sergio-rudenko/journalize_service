@@ -14,7 +14,7 @@ from app import models
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    version="0.0.1",
+    version="0.0.2",
     title="Journalize",
     description="Service to store data from MQTT device topic to Postgres database",
     redoc_url=f'{api_prefix}/redoc',
