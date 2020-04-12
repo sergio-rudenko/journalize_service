@@ -1,7 +1,7 @@
 # import  os
 import httpx
 
-from app.api.models import JournalRecord, JournalIn
+from app.schemas import JournalRecord
 from app.config import api_prefix, types_path, devices_path, journal_path
 
 url = 'http://127.0.0.1:8000'
