@@ -1,0 +1,21 @@
+version: '3.7'
+
+services:
+  journalize:
+    build: .
+    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    volumes:
+      - ./app:/microservice/app/
+    ports:
+      - 8000:8000
+    environment:
+      - DATABASE_URL=postgresql://journalize:12345678@database/journalize_db
+
+  database:
+    image: postgres:12.1-alpine
+    volumes:
+      - ./postgresql_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=journalize
+      - POSTGRES_PASSWORD=12345678
+      - POSTGRES_DB=journalize_db
