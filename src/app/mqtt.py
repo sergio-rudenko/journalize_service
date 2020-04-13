@@ -1,19 +1,39 @@
 import os, time, threading, random, string
 import paho.mqtt.client as mqtt
+# import httpx
 
-from app.schemas import JournalRecord
-from app.api.service import add_device_journal_record
+from app.db import SessionLocal
+from app.schemas import JournalCreate
+from app.api.crud_journal import add_journal_record
 
 
-# service function
+# credentials
+HOST = os.getenv('MQTT_HOST', 'sa100cloud.com')
+PORT = os.getenv('MQTT_PORT', '1883')
+USERNAME = os.getenv('MQTT_USER', 'admin')
+PASSWORD = os.getenv('MQTT_PASS', 'adminpsw')
+
+
 def random_str(len: int):
     chars = string.ascii_uppercase
     return ''.join(random.choice(chars) for i in range(len))
 
 
-def heartbeat(timeout: int = 10):
+CLIENT_ID = os.getenv('MQTT_CLIENT_ID', 'Journalize_' + random_str(8))
+
+# constants
+device_journal_topic_mask = '+/+/journal/#'
+client_journal_topic_mask = 'status/+/journal/#'
+
+
+# heartbeat function ---------------------------------------------------------
+def heartbeat(timeout: int = 15):
+    if not MQTTClient.heartbeat_flag:
+        print("Service heartbeat: disabled.")
+        return None
+
     if MQTTClient.connected_flag:
-        print("mqtt heartbeat", time.ctime())
+        print("Service heartbeat:", time.ctime())
         mqtt_publish('status/journalize/state', 'CONNECTED')
         # TODO: publish statistic data
     else:
@@ -21,45 +41,51 @@ def heartbeat(timeout: int = 10):
     threading.Timer(timeout, heartbeat).start()
 
 
-# credentials
-HOST = os.getenv('MQTT_HOST', 'sa100cloud.com')
-PORT = os.getenv('MQTT_PORT', '1883')
-USERNAME = os.getenv('MQTT_USERNAME', 'admin')
-PASSWORD = os.getenv('MQTT_PASSWORD', 'adminpsw')
-CLIENT_ID = os.getenv('MQTT_PASSWORD', 'Journalize_' + random_str(8))
-
-# constants
-device_journal_topic_mask = '+/+/journal/#'
-client_journal_topic_mask = 'status/+/journal/#'
-
-
+# MQTT callbacks -------------------------------------------------------------
 def on_message_callback(client, userdata, message):
-    # print(f"topic: {message.topic}, payload: {str(message.payload.decode('utf-8'))}")
+    print(f"MQTT: topic '{message.topic}', payload '{str(message.payload.decode('utf-8'))}'")
     # print("message qos:", message.qos)
     # print("message retain flag:", message.retain)
     path = str(message.topic).split('/')
     if path[2] == 'journal':
-        print(f'device: "{path[0]}/{path[1]}", len:', path.__len__())
+        print(f'device: "{path[0]}/{path[1]}"')
         if path.__len__() < 4 or not path[3]:
             print("key not defined!", path)
             return None
         value = str(message.payload.decode("utf-8"))
-        data = JournalRecord(
+        print(f'key: "{path[3]}" -> "{value}"')
+
+        record = JournalCreate(
             key=path[3],
             value=value
         )
-        add_device_journal_record(device_type=path[0], device_uuid=path[1], data=data)
+        db = SessionLocal()  # create session
+        result = add_journal_record(db, record=record, type_title=path[0], device_title=path[1])
+        db.close()  # close session
+
+        if result:
+            print("journal record created, id:", result.id)
+
+        # result = httpx.post(f'http://127.0.0.1:8000/api/v1/{path[0]}/{path[1]}/journal/',
+        #                     json={
+        #                         "key": path[3],
+        #                         "value": value
+        #                     })
+        # if result.status_code == 201:
+        #     print("posted ok!")
+        # else:
+        #     print("post failed!", result)
 
 
-# Result codes:
-# 0: Connection successful
-# 1: Connection refused – incorrect protocol version
-# 2: Connection refused – invalid client identifier
-# 3: Connection refused – server unavailable
-# 4: Connection refused – bad username or password
-# 5: Connection refused – not authorised
-# 6 - 255: Currently unused.
-def on_connect(client, userdata, flags, rc):
+def on_connect_callback(client, userdata, flags, rc):
+    # Result codes:
+    # 0: Connection successful
+    # 1: Connection refused – incorrect protocol version
+    # 2: Connection refused – invalid client identifier
+    # 3: Connection refused – server unavailable
+    # 4: Connection refused – bad username or password
+    # 5: Connection refused – not authorised
+    # 6 - 255: Currently unused.
     if rc == 0:
         client.connected_flag = True
         print("MQTT: connected!")
@@ -72,7 +98,7 @@ def on_connect(client, userdata, flags, rc):
         client.reconnect()
 
 
-def on_disconnect(client, userdata, rc):
+def on_disconnect_callback(client, userdata, rc):
     if rc != 0:
         print("MQTT: Unexpected disconnection!")
     print("MQTT disconnected, rc=", rc)
@@ -91,6 +117,7 @@ def on_disconnect(client, userdata, rc):
 # on_log(client, userdata, level, buf)
 
 
+# MQTT -----------------------------------------------------------------------
 def initialize_client(cname):
     client = mqtt.Client(cname, False)
 
@@ -101,15 +128,15 @@ def initialize_client(cname):
     #           Only one callback may be defined per literal sub string
     # callback  the callback to be used. Takes the same form as the on_message callback.
 
-    client.on_connect = on_connect
-    client.on_disconnect = on_disconnect
+    client.on_connect = on_connect_callback
+    client.on_disconnect = on_disconnect_callback
     # client.on_subscribe = on_subscribe
     # client.on_unsubscribe = on_unsubscribe
 
     # flags
-    client.run_flag = False
+    client.heartbeat_flag = True
     client.connected_flag = False
-    client.subscribe_flag = False
+    # client.subscribe_flag = False
 
     return client
 
@@ -120,14 +147,18 @@ def mqtt_connect():
     MQTTClient.username_pw_set(username=USERNAME, password=PASSWORD)
     MQTTClient.connect_async(HOST, int(PORT))
     MQTTClient.loop_start()
+
+    MQTTClient.heartbeat_flag = True
     heartbeat()
     return None
 
 
 def mqtt_disconnect():
+    print("MQTT: disconnecting.")
     if MQTTClient.connected_flag:
         MQTTClient.disconnect()
     MQTTClient.loop_stop()
+    MQTTClient.heartbeat_flag = False
     return None
 
 
@@ -148,5 +179,5 @@ def mqtt_publish(topic: str, payload: str, qos: int = 0, retain: bool = False):
         MQTTClient.publish(topic, payload, qos, retain)
 
 
-# instance
+# instance -------------------------------------------------------------------
 MQTTClient = initialize_client(CLIENT_ID)

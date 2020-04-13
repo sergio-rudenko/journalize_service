@@ -12,7 +12,12 @@ router = APIRouter()
 
 
 # Journal functions ----------------------------------------------------------
-def add_journal_record(db: Session, record: schemas.JournalCreate, device_id: int):
+def add_journal_record(db: Session, record: schemas.JournalCreate, type_title: str, device_title: str):
+    # print("add_journal_record:", record, db)
+    type_id = obtain_device_type_id(db, type_title=type_title)
+    # print("type_id:", type_id)
+    device_id = obtain_device_id(db, type_id=type_id, device_title=device_title)
+    # print("device_id:", device_id)
     db_record = models.Journal(**record.dict(), device_id=device_id)
     db.add(db_record)
     db.commit()
@@ -58,9 +63,7 @@ def get_journal_records_list_by_key(db: Session, device_id: int, key: str,
 # CRUD -----------------------------------------------------------------------
 @router.post('/{type_title}/{device_title}/journal/', status_code=201, response_model=int)
 def create_journal_record(type_title: str, device_title: str, payload: schemas.JournalCreate, db: Session = Depends(get_db)):
-    type_id = obtain_device_type_id(db, type_title=type_title)
-    device_id = obtain_device_id(db, type_id=type_id, device_title=device_title)
-    new_record = add_journal_record(db, payload, device_id=device_id)
+    new_record = add_journal_record(db, payload, type_title=type_title, device_title=device_title)
     return new_record.id
 
 
