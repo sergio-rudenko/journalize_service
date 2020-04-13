@@ -1,3 +1,13 @@
+# prefix
+SERVICE_PREFIX=/journal
+
+# database credentials
 POSTGRES_BASE=journalize_db
 POSTGRES_USER=journalize
 POSTGRES_PASS=$ecr3t
+
+# mqtt credentials
+MQTT_HOST=mqttbroker
+MQTT_PORT=1883
+MQTT_USER=admin
+MQTT_PASS-adminpsw

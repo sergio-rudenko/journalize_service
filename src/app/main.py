@@ -1,3 +1,4 @@
+import os
 import time
 from fastapi import FastAPI, Request, Response, Header, HTTPException
 
@@ -18,7 +19,8 @@ app = FastAPI(
     title="Journalize",
     description="Service to store data from MQTT device topic to Postgres database",
     redoc_url=f'{api_prefix}/redoc',
-    docs_url=f'{api_prefix}/docs'
+    docs_url=f'{api_prefix}/docs',
+    openapi_prefix=os.getenv('SERVICE_PREFIX', '/journal')
 )
 
 
