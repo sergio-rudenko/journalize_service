@@ -13,7 +13,12 @@ PORT = os.getenv('MQTT_PORT', '1883')
 USERNAME = os.getenv('MQTT_USER', 'admin')
 PASSWORD = os.getenv('MQTT_PASS', 'adminpsw')
 
+# constants
+reconnect_timeout = 5
+heartbeat_timeout = 10
 
+
+# random string generator ----------------------------------------------------
 def random_str(len: int):
     chars = string.ascii_uppercase
     return ''.join(random.choice(chars) for i in range(len))
@@ -27,18 +32,16 @@ client_journal_topic_mask = 'status/+/journal/#'
 
 
 # heartbeat function ---------------------------------------------------------
-def heartbeat(timeout: int = 15):
-    if not MQTTClient.heartbeat_flag:
-        print("Service heartbeat: disabled.")
-        return None
-
+def heartbeat(timeout: int = heartbeat_timeout):
     if MQTTClient.connected_flag:
         print("Service heartbeat:", time.ctime())
         mqtt_publish('status/journalize/state', 'CONNECTED')
         # TODO: publish statistic data
     else:
         print("mqtt is not connected...")
-    threading.Timer(timeout, heartbeat).start()
+
+    MQTTClient.heartbeat_timer = threading.Timer(timeout, heartbeat)
+    MQTTClient.heartbeat_timer.start()
 
 
 # MQTT callbacks -------------------------------------------------------------
@@ -59,9 +62,12 @@ def on_message_callback(client, userdata, message):
             key=path[3],
             value=value
         )
-        db = SessionLocal()  # create session
-        result = add_journal_record(db, record=record, type_title=path[0], device_title=path[1])
-        db.close()  # close session
+        session = SessionLocal()  # create session
+        result = add_journal_record(session,
+                                    record=record,
+                                    type_title=path[0],
+                                    device_title=path[1])
+        session.close()  # close session
 
         if result:
             print("journal record created, id:", result.id)
@@ -100,11 +106,14 @@ def on_connect_callback(client, userdata, flags, rc):
 
 def on_disconnect_callback(client, userdata, rc):
     if rc != 0:
-        print("MQTT: Unexpected disconnection!")
-    print("MQTT disconnected, rc=", rc)
-    client.connected_flag = False
-    time.sleep(5)  # wait
-    client.reconnect()
+        print("MQTT: Unexpected disconnection, rc =", rc)
+    else:
+        print("MQTT: disconnected.")
+
+    if not MQTTClient.shutdown_flag:
+        client.connected_flag = False
+        time.sleep(reconnect_timeout)
+        client.reconnect()
 
 
 # def on_subscribe(client, userdata, mid, granted_qos):
@@ -134,9 +143,12 @@ def initialize_client(cname):
     # client.on_unsubscribe = on_unsubscribe
 
     # flags
-    client.heartbeat_flag = True
+    client.shutdown_flag = False
     client.connected_flag = False
-    # client.subscribe_flag = False
+    client.subscribe_flag = False
+
+    # timer
+    client.heartbeat_timer = None
 
     return client
 
@@ -150,16 +162,21 @@ def mqtt_connect():
 
     MQTTClient.heartbeat_flag = True
     heartbeat()
-    return None
+    return True
 
 
 def mqtt_disconnect():
-    print("MQTT: disconnecting.")
+    print("MQTT: disconnecting...")
+
+    if MQTTClient.heartbeat_timer:
+        MQTTClient.heartbeat_timer.cancel()
+
     if MQTTClient.connected_flag:
         MQTTClient.disconnect()
+
+    MQTTClient.shutdown_flag = True
     MQTTClient.loop_stop()
-    MQTTClient.heartbeat_flag = False
-    return None
+    return True
 
 
 def mqtt_subscribe(topic: str, qos: int = 0):
