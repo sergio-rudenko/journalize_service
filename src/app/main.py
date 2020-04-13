@@ -1,26 +1,55 @@
 import os
 import time
-from fastapi import FastAPI, Request, Response, Header, HTTPException
 
-from app.config import api_version, api_prefix
+from fastapi import FastAPI, Request, Header, HTTPException
+from uvicorn.main import Server
+
+from app import models
 from app.api.crud_devices import router as crud_devices_router
 from app.api.crud_journal import router as crud_journal_router
-
-from app.mqtt import mqtt_connect, mqtt_disconnect
-
+from app.config import title, version, api_version, api_prefix
 from app.db import engine
-from app import models
+from app.mqtt import mqtt_connect, mqtt_disconnect
 
 models.Base.metadata.create_all(bind=engine)
 
+
+# [shutdown handle] ----------------------------------------------------------
+original_handle_exit = Server.handle_exit
+
+
+class ShutdownHandler:
+    @staticmethod
+    def handle_exit(*args, **kwargs):
+        # print("Shutdown app..", args)
+        mqtt_disconnect()
+        original_handle_exit(*args, **kwargs)
+
+
+Server.handle_exit = ShutdownHandler.handle_exit
+# ----------------------------------------------------------------------------
+
 app = FastAPI(
-    version="0.0.2",
-    title="Journalize",
+    version=version,
+    title=title,
     description="Service to store data from MQTT device topic to Postgres database",
     redoc_url=f'{api_prefix}/redoc',
     docs_url=f'{api_prefix}/docs',
-    openapi_prefix=os.getenv('SERVICE_PREFIX', '')
+    openapi_prefix=os.getenv('SERVICE_PREFIX', '/journal')
 )
+
+
+@app.on_event("startup")
+async def startup():
+    print("on_event: startup")
+    mqtt_connect()
+    return None
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    print("on_event: shutdown")
+    return None
 
 
 # https://fastapi.tiangolo.com/tutorial/middleware/
@@ -55,18 +84,6 @@ async def add_process_time_header(request: Request, call_next):
         response.headers["X-Token-Received"] = "none"
 
     return response
-
-
-@app.on_event("startup")
-async def startup():
-    mqtt_connect()
-    return None
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    mqtt_disconnect()
-    return  None
 
 
 # test routes
