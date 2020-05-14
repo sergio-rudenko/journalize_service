@@ -39,6 +39,18 @@ def get_device_types_list(db: Session, offset: int = 0, limit: int = 100):
     return db.query(models.DeviceType).offset(offset).limit(limit).all()
 
 
+def delete_device_type(db: Session, type_title: str):
+    device_type_record = get_device_type(db, type_title);
+
+    # recursively remove devices
+    devices_list = db.query(models.Device).filter(models.Device.type_id == device_type_record.id)
+    for device in devices_list:
+        delete_device(db, device_type_record.id, device.title)
+
+    db.delete(device_type_record)
+    return db.commit()
+
+
 # Device functions -----------------------------------------------------------
 def add_device(db: Session, device: schemas.DeviceCreate, type_id: int):
     db_device = models.Device(**device.dict(), type_id=type_id)
@@ -74,7 +86,19 @@ def get_devices_list(db: Session, type_id: int, offset: int = 0, limit: int = 10
         models.Device.type_id == type_id
     ).offset(offset).limit(limit).all()
 
-# TODO: Update and Delete
+
+def delete_device(db: Session, type_id: int, device_title: str):
+    device_record = get_device(db, type_id, device_title);
+
+    # recursively remove journal records
+    records_list = db.query(models.Journal).filter(models.Journal.device_id == device_record.id)
+    for record in records_list:
+        db.delete(record)
+
+    db.delete(device_record)
+    return db.commit()
+
+# TODO: Update
 
 
 # CRUD Types -----------------------------------------------------------------
@@ -100,6 +124,16 @@ def read_device_type(type_title: str = None, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="type not found")
 
     return type_record
+
+
+@router.delete('/types/{type_title}')
+def remove_device_type(type_title: str, db: Session = Depends(get_db)):
+    type_record = get_device_type(db, type_title=type_title)
+
+    if not type_record:
+        raise HTTPException(status_code=404, detail="type not found")
+
+    return delete_device_type(db, type_title=type_title)
 
 
 # CRUD Devices ---------------------------------------------------------------
@@ -136,3 +170,18 @@ def read_device(type_title: str, device_title: str, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="device not found")
 
     return device_record
+
+
+@router.delete('/{type_title}/{device_title}')
+def remove_device(type_title: str, device_title: str, db: Session = Depends(get_db)):
+    type_record = get_device_type(db, type_title=type_title)
+
+    if not type_record:
+        raise HTTPException(status_code=404, detail="type not found")
+
+    device_record = get_device(db, type_id=type_record.id, device_title=device_title)
+
+    if not device_record:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    return delete_device(db, type_id=type_record.id, device_title=device_title)

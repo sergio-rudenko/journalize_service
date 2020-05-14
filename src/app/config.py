@@ -1,4 +1,4 @@
-version = '0.1.4'
+version = '0.1.5'
 title = 'Journalize'
 
 api_version = 'v1'
