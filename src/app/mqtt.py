@@ -1,11 +1,12 @@
-import os, time, threading, random, string
+import os, time, threading, random, string, json
 import paho.mqtt.client as mqtt
-# import httpx
 
+from datetime import datetime, timedelta
+
+from app import config
 from app.db import SessionLocal
 from app.schemas import JournalCreate
 from app.api.crud_journal import add_journal_record
-
 
 # credentials
 HOST = os.getenv('MQTT_HOST', 'sa100cloud.com')
@@ -19,16 +20,21 @@ heartbeat_timeout = 10
 
 
 # random string generator ----------------------------------------------------
-def random_str(len: int):
+def random_uppercase_string(length: int = 8):
     chars = string.ascii_uppercase
-    return ''.join(random.choice(chars) for i in range(len))
+    return ''.join(random.choice(chars) for i in range(length))
 
 
-CLIENT_ID = os.getenv('MQTT_CLIENT_ID', 'Journalize_' + random_str(8))
+def random_alphanumeric_string(length: int = 8):
+    letters_and_digits = string.ascii_letters + string.digits
+    return ''.join(random.choice(letters_and_digits) for i in range(length))
+
+
+CLIENT_ID = os.getenv('MQTT_CLIENT_ID', 'Journalize_' + random_uppercase_string(8))
 
 # constants
-device_journal_topic_mask = '+/+/journal/#'
-client_journal_topic_mask = 'status/+/journal/#'
+journal_topic_mask = '+/+/journal/#'
+message_topic_mask = 'status/+/msg/#'
 
 
 # heartbeat function ---------------------------------------------------------
@@ -40,6 +46,13 @@ def heartbeat(timeout: int = heartbeat_timeout):
     else:
         print("mqtt is not connected...")
 
+    # manage tokens
+    for record in config.USER_TOKENS:
+        if datetime.now() - record["dt"] > timedelta(hours=1):
+            print(f'Token "{record["token"]}" removed as expired!')
+            config.USER_TOKENS.remove(record)
+
+    # renew timer
     MQTTClient.heartbeat_timer = threading.Timer(timeout, heartbeat)
     MQTTClient.heartbeat_timer.start()
 
@@ -49,24 +62,48 @@ def on_message_callback(client, userdata, message):
     print(f"MQTT: topic '{message.topic}', payload '{str(message.payload.decode('utf-8'))}'")
     # print("message qos:", message.qos)
     # print("message retain flag:", message.retain)
-    path = str(message.topic).split('/')
-    if path[2] == 'journal':
-        print(f'device: "{path[0]}/{path[1]}"')
-        if path.__len__() < 4 or not path[3]:
-            print("key not defined!", path)
-            return None
-        value = str(message.payload.decode("utf-8"))
-        print(f'key: "{path[3]}" -> "{value}"')
 
-        record = JournalCreate(
-            key=path[3],
-            value=value
-        )
+    (type_title, device_title, subtopic, key) = str(message.topic).split('/')
+    payload = str(message.payload.decode("utf-8"))
+
+    if subtopic == 'journal' or subtopic == "msg":
+        if type_title == 'status':
+            type_title = 'client'  # switch type for client applications
+
+        # empty key ----------------------------------------------------------
+        if not key:
+            print("key not defined!", message.topic)
+            return None
+
+        # TOKEN --------------------------------------------------------------
+        if type_title == 'client' and subtopic == 'journal' and key == 'getJournalToken':
+            token = random_alphanumeric_string(16)
+            config.USER_TOKENS.append({'token': token, 'dt': datetime.now()})
+            mqtt_publish(f'status/{device_title}/msg/journalToken', token)
+            print(f'token for id "{device_title}" : {token}')
+            return None
+
+        if type_title == 'client' and key == 'journalToken':
+            # no actions, it`s response with token value
+            return None
+
+        # chat message delivery ----------------------------------------------
+        if type_title == 'client' and subtopic == 'msg' and key == 'chat':
+            decoded_payload = json.loads(payload)
+            if decoded_payload['to_id'] != device_title:
+                print(f'from: "{device_title}", to: "{decoded_payload["to_id"]}"')
+                mqtt_publish(f'status/{decoded_payload["to_id"]}/msg/chat', message.payload)
+
+        # default processing -------------------------------------------------
+        # print(f'type: "{type_title}", id: "{device_title}", record: "{key}" -> "{decoded_payload}"')
         session = SessionLocal()  # create session
         result = add_journal_record(session,
-                                    record=record,
-                                    type_title=path[0],
-                                    device_title=path[1])
+                                    record=JournalCreate(
+                                        key=key,
+                                        value=payload
+                                    ),
+                                    type_title=type_title,
+                                    device_title=device_title)
         session.close()  # close session
 
         if result:
@@ -95,8 +132,8 @@ def on_connect_callback(client, userdata, flags, rc):
     if rc == 0:
         client.connected_flag = True
         print("MQTT: connected!")
-        mqtt_subscribe(device_journal_topic_mask)
-        mqtt_subscribe(client_journal_topic_mask)
+        mqtt_subscribe(journal_topic_mask)
+        mqtt_subscribe(message_topic_mask)
     else:
         client.connected_flag = False
         print("MQTT: connect failed, rc=", rc)

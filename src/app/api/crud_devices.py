@@ -87,12 +87,12 @@ def create_device_type(payload: schemas.DeviceTypeCreate, db: Session = Depends(
     return new_record.id
 
 
-@router.get('/types', response_model=List[schemas.DeviceType])
+@router.get('/types/', response_model=List[schemas.DeviceType])
 def read_device_types_list(offset: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return get_device_types_list(db, offset, limit)
 
 
-@router.get('/{type_title}', response_model=schemas.DeviceType)
+@router.get('/types/{type_title}', response_model=schemas.DeviceType)
 def read_device_type(type_title: str = None, db: Session = Depends(get_db)):
     type_record = get_device_type(db, type_title=type_title)
 
@@ -113,7 +113,7 @@ def create_device(type_title: str, payload: schemas.DeviceCreate, db: Session = 
     return new_record.id
 
 
-@router.get('/{type_title}/devices', response_model=List[schemas.Device])
+@router.get('/{type_title}/devices/', response_model=List[schemas.Device])
 def read_devices_list(type_title: str, offset: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     type_record = get_device_type(db, type_title)
 

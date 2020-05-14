@@ -1,14 +1,29 @@
 from typing import List
 from datetime import datetime
-from fastapi import Depends, APIRouter, HTTPException
+from fastapi import Depends, APIRouter, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app import models, schemas
+from app import config, models, schemas
 
 from app.api.crud_devices import obtain_device_type_id, get_device_type, obtain_device_id, get_device
 
 router = APIRouter()
+
+
+# Authorization functions ----------------------------------------------------
+def check_authorised(token: str, admin_access_required: bool = False):
+    if not admin_access_required:
+        is_valid_token = False
+        if token != config.ADMIN_TOKEN:
+            for record in config.USER_TOKENS:
+                if record["token"] == token:
+                    print(f'Token "{record["token"]}" updated')
+                    record["dt"] = datetime.now();  # update exp
+                    is_valid_token = True;
+        return token == config.ADMIN_TOKEN or is_valid_token
+    else:
+        return token == config.ADMIN_TOKEN
 
 
 # Journal functions ----------------------------------------------------------
@@ -61,18 +76,26 @@ def get_journal_records_list_by_key(db: Session, device_id: int, key: str,
 
 
 # CRUD -----------------------------------------------------------------------
-@router.post('/{type_title}/{device_title}/journal/', status_code=201, response_model=int)
-def create_journal_record(type_title: str, device_title: str, payload: schemas.JournalCreate, db: Session = Depends(get_db)):
+@router.post('/{type_title}/{device_title}/records/', status_code=201, response_model=int)
+def create_journal_record(type_title: str, device_title: str, payload: schemas.JournalCreate,
+                          x_token: str = Header(...), db: Session = Depends(get_db)):
+    if not check_authorised(token=x_token, admin_access_required=False):
+        raise HTTPException(status_code=401, detail="Not Authorised")
+
     new_record = add_journal_record(db, payload, type_title=type_title, device_title=device_title)
     return new_record.id
 
 
-@router.get('/{type_title}/{device_title}/journal', response_model=List[schemas.JournalRecord])
+@router.get('/{type_title}/{device_title}/records/', response_model=List[schemas.JournalRecord])
 def read_journal_records_list(type_title: str, device_title: str,
                               dt_from: datetime = datetime.fromtimestamp(0),
                               dt_to: datetime = datetime.now(),
                               offset: int = 0, limit: int = 100,
+                              x_token: str = Header(...),
                               db: Session = Depends(get_db)):
+    if not check_authorised(token=x_token, admin_access_required=False):
+        raise HTTPException(status_code=401, detail="Not Authorised")
+
     type_record = get_device_type(db, type_title=type_title)
 
     if not type_record:
@@ -88,10 +111,13 @@ def read_journal_records_list(type_title: str, device_title: str,
                                     offset=offset, limit=limit)
 
 
-@router.get('/{type_title}/{device_title}/journal/keys', response_model=List[str])
+@router.get('/{type_title}/{device_title}/keys/', response_model=List[str])
 def read_journal_record_keys_list(type_title: str, device_title: str,
                                   offset: int = 0, limit: int = 100,
+                                  x_token: str = Header(...),
                                   db: Session = Depends(get_db)):
+    if not check_authorised(token=x_token, admin_access_required=False):
+        raise HTTPException(status_code=401, detail="Not Authorised")
 
     type_record = get_device_type(db, type_title=type_title)
 
@@ -107,12 +133,15 @@ def read_journal_record_keys_list(type_title: str, device_title: str,
                                         offset=offset, limit=limit)
 
 
-@router.get('/{type_title}/{device_title}/journal/{key}', response_model=List[schemas.JournalRecord])
+@router.get('/{type_title}/{device_title}/keys/{key}', response_model=List[schemas.JournalRecord])
 def read_journal_records_list_by_key(type_title: str, device_title: str, key: str,
                                      dt_from: datetime = datetime.fromtimestamp(0),
                                      dt_to: datetime = datetime.now(),
                                      offset: int = 0, limit: int = 100,
+                                     x_token: str = Header(...),
                                      db: Session = Depends(get_db)):
+    if not check_authorised(token=x_token, admin_access_required=False):
+        raise HTTPException(status_code=401, detail="Not Authorised")
 
     type_record = get_device_type(db, type_title=type_title)
 
