@@ -1,4 +1,4 @@
-fastapi==0.53.2
+fastapi==0.65.2
 uvicorn==0.11.3
 databases[postgresql]==0.2.6
 paho-mqtt==1.5.0
